@@ -155,7 +155,7 @@ fn main() {
 
 fn calc_round(game: &mut Game, cnt: &mut u8, already_rolled: &mut [u8; 6], rollvec: &Vec<[u8; 6]>, dicekeeps: &Vec<[u8; 6]>, lookup: &LookupTable, entry: &gtk::Entry, label: &gtk::Label, liststore: &gtk::ListStore) {
     // todo: save this between states
-    let (keep_1_states, keep_2_states) = yahtzeesolve::precalc_current_round(*game, lookup, rollvec, dicekeeps);
+    let (keep_1_states, keep_2_states) = yahtzeesolve::precalc_current_round(*game, lookup, rollvec, dicekeeps, 100);
 
     let newroll = entry.get_text().unwrap();
     let input: u32 = newroll.parse().unwrap();
@@ -163,7 +163,7 @@ fn calc_round(game: &mut Game, cnt: &mut u8, already_rolled: &mut [u8; 6], rollv
 
     match *cnt {
         0 => {
-            let (_,kroll) = generators::gen_roll_prob(&inp, already_rolled, &keep_1_states);
+            let (_,kroll) = generators::gen_roll_prob(&inp, already_rolled, &keep_1_states, 100);
             let mut keepstr = format!("Keep ");
             let mut beginning = true;
             for i in 0..6 {
@@ -179,7 +179,7 @@ fn calc_round(game: &mut Game, cnt: &mut u8, already_rolled: &mut [u8; 6], rollv
                 }
             }
             if already_rolled.iter().fold(0, |a, &b| a + b) == 5 {
-                let (_,choseni) = generators::choose_best_field(*game, already_rolled, lookup);
+                let (_,choseni) = generators::choose_best_field(*game, already_rolled, lookup, 100);
                 let scr = rules::score(already_rolled, choseni);
                 *game = game.next_turn(already_rolled, choseni);
                 *cnt = 0;
@@ -210,7 +210,7 @@ fn calc_round(game: &mut Game, cnt: &mut u8, already_rolled: &mut [u8; 6], rollv
             *cnt += 1;
         },
         1 => {
-            let (_,kroll) = generators::gen_roll_prob(&inp, already_rolled, &keep_2_states);
+            let (_,kroll) = generators::gen_roll_prob(&inp, already_rolled, &keep_2_states, 100);
             let mut keepstr = format!("Keep ");
             let mut beginning = true;
             for i in 0..6 {
@@ -226,7 +226,7 @@ fn calc_round(game: &mut Game, cnt: &mut u8, already_rolled: &mut [u8; 6], rollv
                 already_rolled[i] = kroll[i];
             }
             if already_rolled.iter().fold(0, |a, &b| a + b) == 5 {
-                let (_,choseni) = generators::choose_best_field(*game, already_rolled, lookup);
+                let (_,choseni) = generators::choose_best_field(*game, already_rolled, lookup, 100);
                 let scr = rules::score(already_rolled, choseni);
                 *game = game.next_turn(already_rolled, choseni);
                 *cnt = 0;
@@ -259,7 +259,7 @@ fn calc_round(game: &mut Game, cnt: &mut u8, already_rolled: &mut [u8; 6], rollv
             for i in 0..6 {
                 already_rolled[i] += inp[i];
             }
-            let (_,choseni) = generators::choose_best_field(*game, already_rolled, lookup);
+            let (_,choseni) = generators::choose_best_field(*game, already_rolled, lookup, 100);
             let scr = rules::score(already_rolled, choseni);
             *game = game.next_turn(already_rolled, choseni);
             *cnt = 0;

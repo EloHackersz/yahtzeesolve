@@ -29,24 +29,62 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 extern crate term;
+extern crate rand;
+extern crate byteorder;
 extern crate yahtzeesolve;
 
-use std::env;
-use std::io;
-use std::sync::mpsc;
+//use std::env;
+//use std::sync::mpsc;
 use yahtzeesolve::LookupTable;
 use yahtzeesolve::game::generators;
 use yahtzeesolve::game::rules;
 use yahtzeesolve::game::Game;
+use rand::distributions::{IndependentSample, Range};
+use std::io::Read;
+use std::io::Write;
+use std::net::{TcpListener};
+use byteorder::{BigEndian, WriteBytesExt};
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    //let args: Vec<String> = env::args().collect();
+    let listener = TcpListener::bind("127.0.0.1:13337").unwrap();
 
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => {
+                println!("got client");
+                let mut buffer = [0; 1];
+                loop {
+                    match stream.read_exact(&mut buffer) {
+                        Ok(_) => {
+                            let skill : u8 = buffer[0];
+                            println!("skill level is {:?}", skill);
+                            let r = play(true, skill as u32) as u16;
+                            println!("result = {:?}", r);
+                            let mut wtr = vec![];
+                            wtr.write_u16::<BigEndian>(r).unwrap();
+                            stream.write(wtr.as_slice());
+                        },
+                        Err(_) => break
+                    }
+                }
+            }
+            Err(e) => {
+                println!("network error ({:?}) please call Duncan", e);
+            }
+        }
+    }
+
+    /*
     match args.len() {
         1 => {
-            println!("USAGE: {} [generate|play]", &args[0]);
+            println!("USAGE: {} [generate|play] <skill(0-100)>", &args[0]);
         }
-        2 => {
+        _ => {
+            let mut skill : u32 = 100;
+            if args.len() > 2 {
+                skill = (&args[2]).parse::<u32>().unwrap();
+            }
             match &args[1][..] {
                 "generate" => {
                     let mut term = term::stdout().unwrap();
@@ -62,49 +100,97 @@ fn main() {
                     lookup.write_to_file("probs.dat").unwrap();
                 },
                 "play" => {
-                    play();
-                }
+                    play(false, skill);
+                },
+                "score" => {
+                    play(true, skill);
+                },
                 _ => {
                 }
             }
         }
-        _ => {
-            println!("USAGE: {} [generate|play]", &args[0]);
-        }
     }
+    */
 }
 
-fn play() {
+fn play(silent : bool, skill : u32) -> u32 {
+    let mut total_score = 0;
     let rollvec = generators::generate_dice_roll_possibilities();
     let dicekeeps = generators::generate_dice_keep_possibilities();
     let x = LookupTable::from_file("probs.dat").unwrap();
     let mut state = Game::new();
     for _ in 0..13 {
-        state = calc_round(state, &x, &rollvec, &dicekeeps);
+        let (cur_state, score) = calc_round(state, &x, &rollvec, &dicekeeps, silent, skill);
+        state = cur_state;
+        total_score += score
+    }
+    if !silent {
+        println!("Total Score : {:?}", total_score);
+    }
+    total_score
+}
+
+fn mark_text(mark: u8) -> &'static str {
+    let names = vec![
+        "Ones",
+        "Twos",
+        "Threes",
+        "Fours",
+        "Fives", 
+        "Sixes",
+        "3 of a kind",
+        "4 of a kind",
+        "Full house",
+        "Sm. straight",
+        "Lg. straight",
+        "YAHTZEE",
+        "Chance"];
+    names[(mark - 1) as usize]
+}
+
+fn roll_dices(amount: u8) -> u32 {
+    match amount {
+        0 => 0,
+        _ => {
+            let mut dices = 0;
+            let mut rng = rand::thread_rng();
+            let range = Range::new(1, 7);
+            for i in 0..amount {
+                let multiplier = 10u32.pow(i as u32);
+                let thrown = range.ind_sample(&mut rng);
+                dices += thrown * multiplier;
+            }
+            dices
+        }
     }
 }
 
-fn calc_round(game: Game, lookup: &LookupTable, rollvec: &Vec<[u8; 6]>, dicekeeps: &Vec<[u8; 6]>) -> Game {
-    let (keep_1_states, keep_2_states) = yahtzeesolve::precalc_current_round(game, lookup, rollvec, dicekeeps);
-
-    println!("Please roll your dice and enter:");
-    let mut line = String::new();
-    io::stdin().read_line(&mut line).unwrap();
-    let input: u32 = line.trim().parse().unwrap();
+fn calc_round(game: Game, lookup: &LookupTable, rollvec: &Vec<[u8; 6]>, dicekeeps: &Vec<[u8; 6]>, silent: bool, skill : u32) -> (Game, u32) {
+    let (keep_1_states, keep_2_states) = yahtzeesolve::precalc_current_round(game, lookup, rollvec, dicekeeps, skill);
+    let input: u32 = roll_dices(5);
+    if !silent {
+        println!("Thrown {:?}", input);
+    }
     let inp1 = key_conv(input);
-    let (_,kroll) = generators::gen_roll_prob(&inp1,&[0,0,0,0,0,0], &keep_1_states);
-    println!("{:?}", kroll);
-    println!("Please enter your 2nd roll:");
-    line = String::new();
-    io::stdin().read_line(&mut line).unwrap();
-    let input2: u32 = line.trim().parse().unwrap();
+    let (_,kroll) = generators::gen_roll_prob(&inp1,&[0,0,0,0,0,0], &keep_1_states, skill);
+    if !silent {
+        println!("{:?}", kroll);
+    }
+    let nkept : u8 = kroll.iter().sum();
+    let input2: u32 = roll_dices(5u8 - nkept);
+    if !silent {
+        println!("Thrown {:?}", input2);
+    }
     let roll2 = key_conv(input2);
-    let (_,kroll) = generators::gen_roll_prob(&roll2,&kroll, &keep_2_states);
-    println!("{:?}", kroll);
-    println!("Please enter your 3rd roll:");
-    line = String::new();
-    io::stdin().read_line(&mut line).unwrap();
-    let input2: u32 = line.trim().parse().unwrap();
+    let (_,kroll) = generators::gen_roll_prob(&roll2,&kroll, &keep_2_states, skill);
+    if !silent {
+        println!("{:?}", kroll);
+    }
+    let nkept2 : u8 = kroll.iter().sum();
+    let input2: u32 = roll_dices(5u8 - nkept2);
+    if !silent {
+        println!("Thrown {:?}", input2);
+    }
     let mut roll2 = key_conv(input2);
     roll2[0] += kroll[0];
     roll2[1] += kroll[1];
@@ -112,11 +198,16 @@ fn calc_round(game: Game, lookup: &LookupTable, rollvec: &Vec<[u8; 6]>, dicekeep
     roll2[3] += kroll[3];
     roll2[4] += kroll[4];
     roll2[5] += kroll[5];
-    let (_,choseni) = generators::choose_best_field(game, &roll2, lookup);
-    println!("Mark {}", choseni + 1);
+    let (_,choseni) = generators::choose_best_field(game, &roll2, lookup, skill);
+    let marktxt = mark_text(choseni + 1);
+    if !silent {
+        println!("Mark  : {}", marktxt);
+    }
     let scr = rules::score(&roll2, choseni);
-    println!("Score: {}", scr);
-    game.next_turn(&roll2, choseni)
+    if !silent {
+        println!("Score : {}", scr);
+    }
+    (game.next_turn(&roll2, choseni), scr as u32)
 }
 
 fn key_conv(input: u32) -> [u8;6] {

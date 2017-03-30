@@ -36,10 +36,10 @@ use std::collections::BTreeMap;
 
 pub mod game;
 
-pub fn precalc_current_round(game: Game, lookup: &LookupTable, rollvec: &Vec<[u8; 6]>, dicekeeps: &Vec<[u8; 6]>) -> (BTreeMap<[u8; 6],f64>, BTreeMap<[u8; 6],f64>) {
+pub fn precalc_current_round(game: Game, lookup: &LookupTable, rollvec: &Vec<[u8; 6]>, dicekeeps: &Vec<[u8; 6]>, skill : u32) -> (BTreeMap<[u8; 6],f64>, BTreeMap<[u8; 6],f64>) {
     let mut end_states: BTreeMap<[u8; 6],f64> = BTreeMap::new();
     for roll in rollvec {
-        let (tmp,_) = generators::choose_best_field(game, roll, lookup);
+        let (tmp,_) = generators::choose_best_field(game, roll, lookup, skill);
         end_states.insert(*roll, tmp);
     }
 
@@ -50,7 +50,7 @@ pub fn precalc_current_round(game: Game, lookup: &LookupTable, rollvec: &Vec<[u8
 
     let mut roll_2_states: BTreeMap<[u8; 6],f64> = BTreeMap::new();
     for roll in rollvec {
-        let (tmp,_) = generators::gen_roll_prob(roll,&[0,0,0,0,0,0], &keep_2_states);
+        let (tmp,_) = generators::gen_roll_prob(roll,&[0,0,0,0,0,0], &keep_2_states, skill);
         roll_2_states.insert(*roll, tmp);
     }
 

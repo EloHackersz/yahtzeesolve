@@ -28,10 +28,22 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+extern crate rand;
+
 use std::collections::BTreeMap;
 use game::Game;
 use game::rules;
 use game::lookuptable::LookupTable;
+use game::generators::rand::distributions::IndependentSample;
+
+pub fn make_failure_range() -> rand::distributions::Range<u32> {
+    // [0,99]
+    rand::distributions::Range::new(0u32, 100u32)
+}
+
+pub fn get_rand_success(rng : &mut rand::ThreadRng, range : &rand::distributions::Range<u32>, skill : u32) -> bool {
+    range.ind_sample(rng) < skill
+}
 
 pub fn generate_dice_keep_possibilities() -> Vec<[u8; 6]> {
     let mut keeps = vec![];
@@ -78,7 +90,7 @@ pub fn gen_start_prob(Game(state): Game, lookup: &LookupTable, rolls: &Vec<[u8; 
 
     let mut end_states: BTreeMap<[u8; 6],f64> = BTreeMap::new();
     for roll in rolls {
-        let (tmp,_) = choose_best_field(Game(state), roll, lookup);
+        let (tmp,_) = choose_best_field(Game(state), roll, lookup, 100);
         end_states.insert(*roll, tmp);
     }
 
@@ -89,7 +101,7 @@ pub fn gen_start_prob(Game(state): Game, lookup: &LookupTable, rolls: &Vec<[u8; 
 
     let mut roll_2_states: BTreeMap<[u8; 6],f64> = BTreeMap::new();
     for roll in rolls {
-        let (tmp,_) = gen_roll_prob(roll,&[0,0,0,0,0,0], &keep_2_states);
+        let (tmp,_) = gen_roll_prob(roll,&[0,0,0,0,0,0], &keep_2_states, 100);
         roll_2_states.insert(*roll, tmp);
     }
 
@@ -100,7 +112,7 @@ pub fn gen_start_prob(Game(state): Game, lookup: &LookupTable, rolls: &Vec<[u8; 
 
     let mut roll_1_states: BTreeMap<[u8; 6],f64> = BTreeMap::new();
     for roll in rolls {
-        let (tmp,_) = gen_roll_prob(roll,&[0,0,0,0,0,0], &keep_1_states);
+        let (tmp,_) = gen_roll_prob(roll,&[0,0,0,0,0,0], &keep_1_states, 100);
         roll_1_states.insert(*roll, tmp);
     }
 
@@ -170,7 +182,9 @@ pub fn gen_keep_prob(lroll: &[u8; 6], end_states: &BTreeMap<[u8; 6], f64>) -> f6
     sum / cnt
 }
 
-pub fn choose_best_field(state: Game, roll: &[u8; 6], lookup: &LookupTable) -> (f64, u8) {
+pub fn choose_best_field(state: Game, roll: &[u8; 6], lookup: &LookupTable, skill : u32) -> (f64, u8) {
+    let success_range = make_failure_range();
+    let mut rng = rand::thread_rng();
     let &LookupTable(ref lookup) = lookup;
     let mut max = 0.0;
     let mut chosen_field = 0;
@@ -179,15 +193,19 @@ pub fn choose_best_field(state: Game, roll: &[u8; 6], lookup: &LookupTable) -> (
             let Game(new_state) = state.next_turn(roll, i);
             let tmp = lookup[new_state as usize] + rules::score(roll, i) as f64;
             if tmp > max {
-                max = tmp;
-                chosen_field = i;
+                if get_rand_success(&mut rng, &success_range, skill) {
+                    max = tmp;
+                    chosen_field = i;
+                }
             }
         }
     }
     (max,chosen_field)
 }
 
-pub fn gen_roll_prob(lroll: &[u8; 6], prevroll: &[u8; 6], keep_states: &BTreeMap<[u8; 6], f64>) -> (f64, [u8; 6]) {
+pub fn gen_roll_prob(lroll: &[u8; 6], prevroll: &[u8; 6], keep_states: &BTreeMap<[u8; 6], f64>, skill : u32) -> (f64, [u8; 6]) {
+    let success_range = make_failure_range();
+    let mut rng = rand::thread_rng();
     let mut max = 0.0;
     let mut maxroll = [0,0,0,0,0,0];
     for ones in 0..lroll[0]+1 {
@@ -196,9 +214,11 @@ pub fn gen_roll_prob(lroll: &[u8; 6], prevroll: &[u8; 6], keep_states: &BTreeMap
                 for fours in 0..lroll[3]+1 {
                     for fives in 0..lroll[4]+1 {
                         for sixes in 0..lroll[5]+1 {
-                            let tmp2 = [ones+prevroll[0],twos+prevroll[1],threes+prevroll[2],fours+prevroll[3],fives+prevroll[4],sixes+prevroll[5]];
-                            let tmp = *keep_states.get(&tmp2).expect("asdf");
-                            if tmp > max { max = tmp; maxroll = tmp2; }
+                            if get_rand_success(&mut rng, &success_range, skill) {
+                                let tmp2 = [ones+prevroll[0],twos+prevroll[1],threes+prevroll[2],fours+prevroll[3],fives+prevroll[4],sixes+prevroll[5]];
+                                let tmp = *keep_states.get(&tmp2).expect("asdf");
+                                if tmp > max { max = tmp; maxroll = tmp2; }
+                            }
                         }
                     }
                 }
